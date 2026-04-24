@@ -2,11 +2,14 @@ package com.wly.ai_agent_plus.advisor;
 
 import org.springframework.ai.chat.client.ChatClientRequest;
 import org.springframework.ai.chat.client.ChatClientResponse;
-import org.springframework.ai.chat.client.advisor.api.AdvisorChain;
-import org.springframework.ai.chat.client.advisor.api.BaseAdvisor;
-import org.springframework.ai.chat.prompt.PromptTemplate;
+import org.springframework.ai.chat.client.advisor.api.CallAdvisor;
+import org.springframework.ai.chat.client.advisor.api.CallAdvisorChain;
+import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.ai.chat.prompt.Prompt;
 
-import java.util.Map;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Re-Reading（RE²）Advisor
@@ -19,65 +22,60 @@ import java.util.Map;
  *   你是谁？
  *   Read the question again: 你是谁？
  */
-public class ReReadingAdvisor implements BaseAdvisor {
+public class ReReadingAdvisor implements CallAdvisor {
 
-    // 默认模板：将用户问题重复两遍
-    private static final String DEFAULT_RE2_ADVISE_TEMPLATE = """
-            {re2_input_query}
-            Read the question again: {re2_input_query}
-            """;
-
-    // 实际使用的模板，支持自定义
-    private final String re2AdviseTemplate;
-
-    /**
-     * 使用默认模板构造
-     */
-    public ReReadingAdvisor() {
-        this(DEFAULT_RE2_ADVISE_TEMPLATE);
-    }
-
-    /**
-     * 使用自定义模板构造
-     * @param re2AdviseTemplate 自定义提示模板，需包含 {re2_input_query} 占位符
-     */
-    public ReReadingAdvisor(String re2AdviseTemplate) {
-        this.re2AdviseTemplate = re2AdviseTemplate;
-    }
-
-    /**
-     * 请求发送给模型之前执行
-     * 将用户原始问题填入模板，生成重复问题的增强文本，替换原始用户消息
-     */
     @Override
-    public ChatClientRequest before(ChatClientRequest chatClientRequest, AdvisorChain advisorChain) {
-        // 用模板渲染增强后的用户提示词，将 {re2_input_query} 替换为实际用户输入
-        String augmentedUserText = PromptTemplate.builder()
-                .template(this.re2AdviseTemplate)
-                .variables(Map.of("re2_input_query", chatClientRequest.prompt().getUserMessage().getText()))
-                .build()
-                .render();
+    public ChatClientResponse adviseCall(ChatClientRequest request, CallAdvisorChain chain) {
+        // 获取所有消息
+        List<Message> messages = request.prompt().getInstructions();
+        
+        // 找到最后一条用户消息
+        String lastUserText = null;
+        int lastUserIndex = -1;
+        for (int i = messages.size() - 1; i >= 0; i--) {
+            Message msg = messages.get(i);
+            if (msg instanceof UserMessage) {
+                lastUserText = msg.getText();
+                lastUserIndex = i;
+                break;
+            }
+        }
 
-        // 用增强后的文本替换原始用户消息，其余请求内容不变
-        return chatClientRequest.mutate()
-                .prompt(chatClientRequest.prompt().augmentUserMessage(augmentedUserText))
+        if (lastUserText == null) {
+            return chain.nextCall(request);
+        }
+
+        // 构造重复的消息
+        String enhancedText = lastUserText + "\nRead the question again: " + lastUserText;
+
+        // 创建新的消息列表
+        List<Message> newMessages = new ArrayList<>();
+        for (int i = 0; i < messages.size(); i++) {
+            if (i == lastUserIndex) {
+                // 替换最后一条用户消息
+                newMessages.add(new UserMessage(enhancedText));
+            } else {
+                newMessages.add(messages.get(i));
+            }
+        }
+
+        // 创建新的 Prompt
+        Prompt newPrompt = new Prompt(newMessages, request.prompt().getOptions());
+
+        // 修改请求
+        ChatClientRequest modifiedRequest = request.mutate()
+                .prompt(newPrompt)
                 .build();
+
+        // 继续调用链
+        return chain.nextCall(modifiedRequest);
     }
 
-    /**
-     * 模型响应返回后执行
-     * 此 Advisor 不需要处理响应，直接透传
-     */
     @Override
-    public ChatClientResponse after(ChatClientResponse chatClientResponse, AdvisorChain advisorChain) {
-
-        return chatClientResponse;
+    public String getName() {
+        return "ReReadingAdvisor";
     }
 
-    /**
-     * Advisor 执行顺序，数字越小越先执行
-     * 设为 -1，在记忆 Advisor（通常为 0）之前执行
-     */
     @Override
     public int getOrder() {
         return -1;

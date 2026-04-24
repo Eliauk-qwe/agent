@@ -17,6 +17,7 @@ import reactor.core.publisher.Flux;
  */
 @Slf4j
 public class myadvisor implements CallAdvisor, StreamAdvisor {
+    
     @Override
     public ChatClientResponse adviseCall(ChatClientRequest chatClientRequest, CallAdvisorChain callAdvisorChain) {
         logRequest(chatClientRequest);
@@ -42,6 +43,7 @@ public class myadvisor implements CallAdvisor, StreamAdvisor {
     }
 
     protected void logRequest(ChatClientRequest request) {
+        // 不打印完整 request，避免输出 RAG 注入的大量知识库内容
         log.debug("request: {}", request.prompt().getUserMessage().getText());
     }
 
@@ -69,8 +71,6 @@ public class myadvisor implements CallAdvisor, StreamAdvisor {
     public int getOrder() {
         return 0;
     }
-
-
 }
 
 
