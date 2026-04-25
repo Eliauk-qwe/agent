@@ -11,7 +11,7 @@ import org.springframework.stereotype.Component;
  * CommandLineRunner：Spring Boot 启动完成后自动执行 run 方法
  */
 //@Component 告诉 Spring：把这个类交给我管理，也就是让 Spring 创建这个类的实例（Bean）并放入容器里。
-@Component
+//@Component  // 注释掉，避免启动时自动执行干扰测试
 public class SpringAI implements CommandLineRunner {
 
     // 注入 Spring AI 提供的聊天模型（具体实现由配置决定，如 OpenAI、通义千问等）

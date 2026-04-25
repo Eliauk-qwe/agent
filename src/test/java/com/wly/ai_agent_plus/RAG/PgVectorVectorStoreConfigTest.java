@@ -1,4 +1,4 @@
-package com.wly.ai_agent_plus;
+package com.wly.ai_agent_plus.RAG;
 
 import jakarta.annotation.Resource;
 import org.junit.jupiter.api.Assertions;

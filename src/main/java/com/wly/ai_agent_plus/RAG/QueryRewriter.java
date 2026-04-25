@@ -1,11 +1,15 @@
 package com.wly.ai_agent_plus.RAG;
 
+import com.alibaba.cloud.ai.dashscope.chat.DashScopeChatModel;
+import com.alibaba.cloud.ai.dashscope.chat.DashScopeChatOptions;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.rag.Query;
 import org.springframework.ai.rag.preretrieval.query.transformation.QueryTransformer;
-import org.springframework.ai.rag.preretrieval.query.transformation.RewriteQueryTransformer;
 import org.springframework.stereotype.Component;
+
+import java.util.List;
 
 /**
  * 查询重写组件
@@ -23,30 +27,42 @@ import org.springframework.stereotype.Component;
  * 调用关系：
  *   LoveApp.chatwithrag()
  *     → QueryRewriter.rewrite()  ← 先改写问题
- *       → RewriteQueryTransformer（Spring AI 内置）
- *         → 调用 LLM 生成改写后的问题
+ *       → 直接调用 LLM 生成改写后的问题
  *     → QuestionAnswerAdvisor    ← 用改写后的问题检索向量库
  */
 @Component
 @Slf4j
-public class QueryRewriter {
+public class QueryRewriter implements QueryTransformer {
 
-    // Spring AI 内置的查询重写转换器
-    private final QueryTransformer queryTransformer;
+    private final DashScopeChatModel chatModel;
+    private final DashScopeChatOptions options;
+
+    private static final String REWRITE_PROMPT_TEMPLATE = """
+            你是一个查询重写专家。你的任务是将用户的口语化问题改写成更适合向量检索的形式。
+            
+            要求：
+            1. 保持原问题的核心意图
+            2. 使用更正式、更具体的表达
+            3. 提取关键概念和主题
+            4. 只返回改写后的问题，不要有任何解释
+            
+            用户问题：{query}
+            
+            改写后的问题：
+            """;
 
     /**
-     * 注入 ChatClient.Builder（通义千问），用于驱动查询重写
+     * 注入 DashScopeChatModel，用于驱动查询重写
      * 
      * 改进说明：
-     *   直接注入 ChatClient.Builder 而不是 ChatModel，
-     *   这样可以继承 application.yml 中配置的超时时间等参数，
-     *   避免查询重写步骤因使用默认超时配置而超时。
+     *   不使用 RewriteQueryTransformer，而是直接调用 ChatModel，
+     *   这样可以完全控制选项，确保 enableThinking=false 生效。
      */
-    public QueryRewriter(ChatClient.Builder chatClientBuilder) {
-        // 创建查询重写转换器
-        // 默认 prompt：将用户问题改写为更适合向量检索的形式
-        queryTransformer = RewriteQueryTransformer.builder()
-                .chatClientBuilder(chatClientBuilder)
+    public QueryRewriter(DashScopeChatModel chatModel) {
+        this.chatModel = chatModel;
+        // Qwen3 系列模型默认开启深度思考，非流式调用必须显式关闭，否则报 url error
+        this.options = DashScopeChatOptions.builder()
+                .enableThinking(false)
                 .build();
     }
 
@@ -59,11 +75,30 @@ public class QueryRewriter {
     public String rewrite(String originalQuery) {
         log.debug("查询重写 - 原始: {}", originalQuery);
 
-        Query query = new Query(originalQuery);
-        Query transformedQuery = queryTransformer.transform(query);
-        String rewrittenQuery = transformedQuery.text();
+        try {
+            // 构造重写提示词
+            String promptText = REWRITE_PROMPT_TEMPLATE.replace("{query}", originalQuery);
+            
+            // 创建 Prompt，显式设置 enableThinking=false
+            Prompt prompt = new Prompt(
+                    List.of(new UserMessage(promptText)),
+                    options
+            );
+            
+            // 调用模型
+            String rewrittenQuery = chatModel.call(prompt).getResult().getOutput().getText();
+            
+            log.debug("查询重写 - 改写后: {}", rewrittenQuery);
+            return rewrittenQuery.trim();
+        } catch (Exception e) {
+            log.warn("查询重写失败，使用原始问题: {}", e.getMessage());
+            return originalQuery;
+        }
+    }
 
-        log.debug("查询重写 - 改写后: {}", rewrittenQuery);
-        return rewrittenQuery;
+    @Override
+    public Query transform(Query query) {
+        String rewrittenText = rewrite(query.text());
+        return new Query(rewrittenText);
     }
 }

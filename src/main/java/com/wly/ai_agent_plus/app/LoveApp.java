@@ -1,5 +1,6 @@
 package com.wly.ai_agent_plus.app;
 
+import com.alibaba.cloud.ai.dashscope.chat.DashScopeChatOptions;
 import com.wly.ai_agent_plus.RAG.LoveAppContextualQueryAugmenterFactory;
 import com.wly.ai_agent_plus.RAG.QueryRewriter;
 import com.wly.ai_agent_plus.advisor.SafeGuardAdvisor;
@@ -10,6 +11,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.chat.memory.MessageWindowChatMemory;
+import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.SystemPromptTemplate;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.rag.Query;
@@ -90,10 +92,12 @@ public class LoveApp {
 
                 this.chatClient = chatClientBuilder
                         .defaultSystem(systemPrompt)
+                        .defaultOptions(DashScopeChatOptions.builder()
+                                .enableThinking(false)  // Qwen3 系列必须关闭思考模式，否则非流式调用报错
+                                .build())
                         .defaultAdvisors(
                                 new myadvisor(),
                                 new SafeGuardAdvisor()
-                                //new ReReadingAdvisor()
                         )
                         .build();
         }
@@ -203,6 +207,29 @@ public class LoveApp {
         log.info("=== RAG 对话完成，总耗时 {}ms ===", totalTime);
         log.info("回答: {}", response);
     }
+
+
+
+
+
+        @jakarta.annotation.Resource
+        private Object[] allTools;
+
+        public String doChatWithTools(String message, String chatID) {
+        ChatResponse response = chatClient.prompt()
+                .user(message)
+                .advisors(spec -> spec
+                        .advisors(MessageChatMemoryAdvisor.builder(chatMemory).conversationId(chatID).build())
+
+                )
+                .tools(allTools)  // Use tools() for @Tool annotated methods
+                .call()
+                .chatResponse();
+        String content = response.getResult().getOutput().getText();
+        log.info("content: {}", content);
+        return content;
+        }
+
 
 
 
