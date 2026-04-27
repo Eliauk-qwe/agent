@@ -1,4 +1,5 @@
 application.yml
+src/main/resources/mcp_servers.json
 HELP.md
 tmp/*
 target/

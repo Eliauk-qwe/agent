@@ -16,6 +16,7 @@ import org.springframework.ai.chat.prompt.SystemPromptTemplate;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.rag.Query;
 import org.springframework.ai.rag.generation.augmentation.ContextualQueryAugmenter;
+import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -228,6 +229,21 @@ public class LoveApp {
         String content = response.getResult().getOutput().getText();
         log.info("content: {}", content);
         return content;
+        }
+
+
+
+        @jakarta.annotation.Resource
+        private ToolCallbackProvider toolCallbackProvider;
+
+        public void dochatwithmcp(String message, String chatID) {
+            ChatResponse response = chatClient.prompt()
+                    .user(message)
+                    .advisors(spec -> spec.advisors(MessageChatMemoryAdvisor.builder(chatMemory).conversationId(chatID).build()))
+                    .toolCallbacks(toolCallbackProvider)  // MCP 工具用 toolCallbacks()，不是 tools()
+                    .call()
+                    .chatResponse();
+
         }
 
 

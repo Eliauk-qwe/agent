@@ -56,4 +56,17 @@ public class LoveAppTest {
     }
 
 
+    @Test
+    void doChatWithMcp() {
+        String chatId = UUID.randomUUID().toString();
+        // 测试地图 MCP（调用 dochatwithmcp，挂载的是高德地图 MCP 工具）
+        String message = "帮我搜索一些好看的自然风景的图片";
+
+    }
+
+
+
+
+
+
 }

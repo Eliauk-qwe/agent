@@ -44,7 +44,7 @@ public class myadvisor implements CallAdvisor, StreamAdvisor {
 
     protected void logRequest(ChatClientRequest request) {
         // 不打印完整 request，避免输出 RAG 注入的大量知识库内容
-        log.debug("request: {}", request.prompt().getUserMessage().getText());
+        log.info("request: {}", request.prompt().getUserMessage().getText());
     }
 
     protected void logResponse(ChatClientRequest request, ChatClientResponse chatClientResponse) {
@@ -57,8 +57,8 @@ public class myadvisor implements CallAdvisor, StreamAdvisor {
             // 违禁词场景，使用 info 级别确保一定输出
             log.info("抱歉，您的消息包含敏感词汇，无法为您提供回答。请调整您的问题后重试。");
         } else {
-            // 正常场景，使用 debug 级别
-            log.debug("response: {}", responseText);
+
+            log.info("response: {}", responseText);
         }
     }
 

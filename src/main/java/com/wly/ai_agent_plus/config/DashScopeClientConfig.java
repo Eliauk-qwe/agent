@@ -24,7 +24,7 @@ public class DashScopeClientConfig {
     @Bean
     public HttpClient httpClient() {
         return HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(30))  // 连接超时：30秒
+                .connectTimeout(Duration.ofSeconds(60))  // 连接超时：60秒
                 .build();
     }
 
@@ -35,7 +35,7 @@ public class DashScopeClientConfig {
     @Bean
     public RestClientCustomizer restClientCustomizer(HttpClient httpClient) {
         JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(httpClient);
-        requestFactory.setReadTimeout(Duration.ofSeconds(300));  // 读取超时：300秒（5分钟）
+        requestFactory.setReadTimeout(Duration.ofSeconds(600));  // 读取超时：600秒（10分钟）
         
         return restClientBuilder -> restClientBuilder
                 .requestFactory(requestFactory);

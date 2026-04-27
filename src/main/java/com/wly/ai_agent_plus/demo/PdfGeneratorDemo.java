@@ -2,11 +2,7 @@ package com.wly.ai_agent_plus.demo;
 
 import com.wly.ai_agent_plus.Tool.PdfGeneratorTool;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.boot.CommandLineRunner;
-import org.springframework.boot.SpringApplication;
-import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.ComponentScan;
+import org.springframework.stereotype.Component;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -14,19 +10,17 @@ import java.util.Map;
 /**
  * PDF 生成工具演示
  * 展示如何使用 PdfGeneratorTool 生成各种格式的文档
+ * 
+ * 注意：这是一个演示类，需要手动调用 runDemo() 方法来执行演示
  */
 @Slf4j
-@SpringBootApplication
-@ComponentScan(basePackages = "com.wly.ai_agent_plus")
+@Component
 public class PdfGeneratorDemo {
 
-    public static void main(String[] args) {
-        SpringApplication.run(PdfGeneratorDemo.class, args);
-    }
-
-    @Bean
-    public CommandLineRunner demo(PdfGeneratorTool pdfGeneratorTool) {
-        return args -> {
+    /**
+     * 运行完整的演示
+     */
+    public void runDemo(PdfGeneratorTool pdfGeneratorTool) {
             log.info("=== PDF 生成工具演示开始 ===\n");
 
             // 1. 生成简单的 PDF 文档
@@ -49,7 +43,6 @@ public class PdfGeneratorDemo {
 
             log.info("\n=== PDF 生成工具演示结束 ===");
             log.info("所有文档已生成到 '{}' 目录", pdfGeneratorTool.getDefaultOutputDir());
-        };
     }
 
     /**
