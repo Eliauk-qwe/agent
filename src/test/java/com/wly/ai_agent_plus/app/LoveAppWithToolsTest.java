@@ -2,8 +2,24 @@ package com.wly.ai_agent_plus.app;
 
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.Test;
+import org.springframework.ai.chat.memory.ChatMemoryRepository;
+import org.springframework.ai.chat.memory.InMemoryChatMemoryRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.boot.test.util.TestPropertyValues;
+import org.springframework.context.ApplicationContextInitializer;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.context.annotation.Primary;
+import org.springframework.test.context.ContextConfiguration;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -11,9 +27,69 @@ import static org.junit.jupiter.api.Assertions.*;
  * LoveApp 工具调用测试
  * 测试 AI Agent 使用各种工具的能力
  */
-@SpringBootTest
+@SpringBootTest(properties = "spring.ai.mcp.client.enabled=false")
+@ContextConfiguration(initializers = LoveAppWithToolsTest.DotEnvInitializer.class)
 @Slf4j
 class LoveAppWithToolsTest {
+
+    @TestConfiguration
+    static class TestMemoryConfiguration {
+
+        @Bean
+        @Primary
+        ChatMemoryRepository chatMemoryRepository() {
+            return new InMemoryChatMemoryRepository();
+        }
+    }
+
+    static class DotEnvInitializer implements ApplicationContextInitializer<ConfigurableApplicationContext> {
+
+        @Override
+        public void initialize(ConfigurableApplicationContext applicationContext) {
+            Path dotenv = Path.of(".env");
+            if (!Files.exists(dotenv)) {
+                return;
+            }
+
+            try {
+                List<String> properties = new ArrayList<>();
+                for (String line : Files.readAllLines(dotenv, StandardCharsets.UTF_8)) {
+                    String property = parseEnvLine(line);
+                    if (property != null) {
+                        properties.add(property);
+                    }
+                }
+                TestPropertyValues.of(properties).applyTo(applicationContext);
+            } catch (IOException e) {
+                throw new IllegalStateException("Failed to load .env for LoveAppWithToolsTest", e);
+            }
+        }
+
+        private static String parseEnvLine(String line) {
+            String trimmed = line.trim();
+            if (trimmed.isEmpty() || trimmed.startsWith("#")) {
+                return null;
+            }
+            if (trimmed.startsWith("export ")) {
+                trimmed = trimmed.substring("export ".length()).trim();
+            }
+
+            int separator = trimmed.indexOf('=');
+            if (separator <= 0) {
+                return null;
+            }
+
+            String key = trimmed.substring(0, separator).trim();
+            String value = trimmed.substring(separator + 1).trim();
+            if (System.getenv(key) != null || System.getProperty(key) != null) {
+                return null;
+            }
+            if ((value.startsWith("\"") && value.endsWith("\"")) || (value.startsWith("'") && value.endsWith("'"))) {
+                value = value.substring(1, value.length() - 1);
+            }
+            return key + "=" + value;
+        }
+    }
 
     @Autowired
     private LoveApp loveApp;

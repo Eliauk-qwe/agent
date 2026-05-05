@@ -3,8 +3,11 @@ package com.wly.ai_agent_plus.Tool;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.ai.tool.annotation.Tool;
+import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
@@ -16,19 +19,18 @@ import java.util.function.Function;
  * 搜索工具
  * 
  * 基于 SearchAPI.io 的搜索 API 实现
- * 文档: https://www.searchapi.io/docs/baidu
  * 
  * 功能：
  *   - 实时搜索结果
  *   - 支持有机搜索结果、知识图谱、AI 回答等
  *   - 支持时间范围过滤
- *   - 支持简体/繁体中文
+ *   - 默认使用 Google 搜索，也支持指定 Baidu 等 SearchAPI 引擎
  */
 @Component
 @Slf4j
 public class BaiduSearchTool implements Function<BaiduSearchTool.Request, BaiduSearchTool.Response> {
 
-    @Value("${searchapi.api-key:}")
+    @Value("${search-api.api-key:${searchapi.api-key:}}")
     private String apiKey;
 
     private static final String SEARCH_API_URL = "https://www.searchapi.io/api/v1/search";
@@ -36,8 +38,12 @@ public class BaiduSearchTool implements Function<BaiduSearchTool.Request, BaiduS
     private final ObjectMapper objectMapper;
 
     public BaiduSearchTool() {
-        this.restTemplate = new RestTemplate();
         this.objectMapper = new ObjectMapper();
+        // 配置超时
+        org.springframework.http.client.SimpleClientHttpRequestFactory factory = new org.springframework.http.client.SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(30000);  // 30秒连接超时
+        factory.setReadTimeout(30000);     // 30秒读取超时
+        this.restTemplate = new RestTemplate(factory);
     }
 
     /**
@@ -46,22 +52,36 @@ public class BaiduSearchTool implements Function<BaiduSearchTool.Request, BaiduS
      * @param request 搜索请求
      * @return 搜索结果
      */
+    @Tool(name = "searchWeb", description = "Search the web through SearchAPI. Defaults to Google search and can use other engines such as Baidu when requested. Returns organic results, answer box, knowledge graph, and related searches.")
     @Override
-    public Response apply(Request request) {
+    public Response apply(@ToolParam(description = "Web search request with query, optional engine, and optional filters") Request request) {
         log.info("搜索: {}", request.query);
         
         try {
+            if (request == null || !StringUtils.hasText(request.query)) {
+                Response errorResponse = new Response();
+                errorResponse.error = "搜索失败: query 不能为空";
+                return errorResponse;
+            }
+            if (!StringUtils.hasText(apiKey)) {
+                Response errorResponse = new Response();
+                errorResponse.error = "搜索失败: 未配置 search-api.api-key";
+                return errorResponse;
+            }
+
+            String engine = StringUtils.hasText(request.engine) ? request.engine : "google";
+
             // 构建请求 URL
             UriComponentsBuilder builder = UriComponentsBuilder.fromHttpUrl(SEARCH_API_URL)
-                    .queryParam("engine", "baidu")
+                    .queryParam("engine", engine)
                     .queryParam("q", request.query)
                     .queryParam("api_key", apiKey);
             
             // 可选参数
-            if (request.ct != null) {
+            if (request.ct != null && request.ct >= 0 && request.ct <= 2) {
                 builder.queryParam("ct", request.ct);
             }
-            if (request.gpc != null) {
+            if (StringUtils.hasText(request.gpc)) {
                 builder.queryParam("gpc", request.gpc);
             }
             
@@ -146,6 +166,12 @@ public class BaiduSearchTool implements Function<BaiduSearchTool.Request, BaiduS
          * 搜索关键词（必填）
          */
         public String query;
+
+        /**
+         * 搜索引擎（可选）
+         * 默认 google；也可以传 baidu 等 SearchAPI 支持的引擎。
+         */
+        public String engine;
         
         /**
          * 语言控制（可选）
@@ -171,6 +197,11 @@ public class BaiduSearchTool implements Function<BaiduSearchTool.Request, BaiduS
         public Request(String query, Integer ct) {
             this.query = query;
             this.ct = ct;
+        }
+
+        public Request(String query, String engine) {
+            this.query = query;
+            this.engine = engine;
         }
     }
 

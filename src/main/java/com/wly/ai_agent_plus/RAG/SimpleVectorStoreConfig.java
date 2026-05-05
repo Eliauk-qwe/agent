@@ -6,9 +6,11 @@ import org.springframework.ai.document.Document;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.ai.vectorstore.SimpleVectorStore;
 import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import java.io.File;
 import java.util.List;
 
 /**
@@ -38,6 +40,12 @@ public class SimpleVectorStoreConfig {
     @Resource
     private LoveAppDocumentLoader loveAppDocumentLoader;
 
+    @Value("${spring.ai.vectorstore.persist.enabled:true}")
+    private boolean persistEnabled;
+
+    @Value("${spring.ai.vectorstore.persist.path:./data/vectorstore.json}")
+    private String persistPath;
+
     /**
      * 创建 SimpleVectorStore Bean
      * 
@@ -49,6 +57,13 @@ public class SimpleVectorStoreConfig {
         
         // 创建 SimpleVectorStore - 使用 builder 模式
         SimpleVectorStore vectorStore = SimpleVectorStore.builder(embeddingModel).build();
+
+        File storeFile = new File(persistPath);
+        if (persistEnabled && storeFile.exists() && storeFile.length() > 0) {
+            log.info("从本地文件加载 SimpleVectorStore: {}", storeFile.getAbsolutePath());
+            vectorStore.load(storeFile);
+            return vectorStore;
+        }
         
         // 加载文档
         log.info("开始加载文档到 SimpleVectorStore");
@@ -61,6 +76,16 @@ public class SimpleVectorStoreConfig {
             
             // 添加文档到向量存储（会调用 embedding API）
             vectorStore.add(documents);
+
+            if (persistEnabled) {
+                File parentDir = storeFile.getParentFile();
+                if (parentDir != null && !parentDir.exists()) {
+                    boolean created = parentDir.mkdirs();
+                    log.info("创建向量存储目录: {}, 结果: {}", parentDir.getAbsolutePath(), created);
+                }
+                vectorStore.save(storeFile);
+                log.info("SimpleVectorStore 已保存到本地文件: {}", storeFile.getAbsolutePath());
+            }
             
             log.info("文档添加完成，已存储到内存（应用重启后会丢失）");
         }

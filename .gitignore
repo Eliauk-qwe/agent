@@ -1,13 +1,26 @@
+# 本地配置文件，通常包含密钥、数据库连接、MCP 服务等敏感信息
 application.yml
 src/main/resources/mcp_servers.json
+.env
+.env.*
+
+# Spring Boot 生成的帮助文档，不参与源码管理
 HELP.md
+
+# 运行时临时文件和构建输出
 tmp/*
+data/*
 target/
+
+# Maven Wrapper 会在本地自动下载该 jar，避免提交二进制文件
 .mvn/wrapper/maven-wrapper.jar
+
+# 保留源码目录下可能存在的 target/build 目录，用于兼容嵌套模块
 !**/src/main/**/target/
 !**/src/test/**/target/
 
 ### STS ###
+# Eclipse / Spring Tool Suite 项目元数据
 .apt_generated
 .classpath
 .factorypath
@@ -17,12 +30,14 @@ target/
 .sts4-cache
 
 ### IntelliJ IDEA ###
+# IntelliJ IDEA 项目配置
 .idea
 *.iws
 *.iml
 *.ipr
 
 ### NetBeans ###
+# NetBeans 项目元数据和构建目录
 /nbproject/private/
 /nbbuild/
 /dist/
@@ -33,4 +48,5 @@ build/
 !**/src/test/**/build/
 
 ### VS Code ###
+# VS Code 工作区配置
 .vscode/

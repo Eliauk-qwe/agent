@@ -7,6 +7,7 @@ import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -69,6 +70,7 @@ public class DatabaseChatMemoryRepository implements ChatMemoryRepository {
      * 截断后的完整列表需要整体替换数据库里的旧数据，所以先删再全量插入。
      */
     @Override
+    @Transactional
     public void saveAll(String conversationId, List<Message> messages) {
         // 先删除该会话的所有旧消息
         chatMessageMapper.deleteByConversationId(conversationId);

@@ -5,17 +5,18 @@ import com.wly.ai_agent_plus.RAG.LoveAppContextualQueryAugmenterFactory;
 import com.wly.ai_agent_plus.RAG.QueryRewriter;
 import com.wly.ai_agent_plus.advisor.SafeGuardAdvisor;
 import com.wly.ai_agent_plus.advisor.myadvisor;
-import com.wly.ai_agent_plus.memory.DatabaseChatMemoryRepository;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
+import org.springframework.ai.chat.memory.ChatMemoryRepository;
 import org.springframework.ai.chat.memory.MessageWindowChatMemory;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.SystemPromptTemplate;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.rag.Query;
 import org.springframework.ai.rag.generation.augmentation.ContextualQueryAugmenter;
+import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
@@ -23,10 +24,18 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Component;
+import reactor.core.publisher.Flux;
 
 import java.io.IOException;
 import java.util.List;
 
+/**
+ * 恋爱顾问 Agent 的主入口。
+ *
+ * 这个类把 Spring AI 的 ChatClient、对话记忆、RAG 检索、本地工具和 MCP 工具串起来，
+ * 对外提供不同的对话能力。当前更像一个应用门面：调用方只需要传入用户消息和 chatId，
+ * 具体走普通对话、RAG 对话、工具调用还是 MCP 调用由对应方法决定。
+ */
 @Component
 @Slf4j
 public class LoveApp {
@@ -40,13 +49,15 @@ public class LoveApp {
         
         private ChatClient chatClient;
 
-        // 对话记忆，保存多轮对话的历史。
+        // 对话记忆，保存多轮对话的历史；生产环境由 DatabaseChatMemoryRepository 落到 MySQL。
         private MessageWindowChatMemory chatMemory;
 
+        // 渲染后的系统提示词，会在初始化后被复用，避免每次请求重复读取模板文件。
         private String systemPrompt;
         
+        // ChatClient.Builder 由 Spring AI 自动配置，包含模型、连接信息等基础能力。
         private final ChatClient.Builder chatClientBuilder;
-        private final DatabaseChatMemoryRepository databaseRepository;
+        private final ChatMemoryRepository chatMemoryRepository;
 
         // 注入向量存储
         @Autowired
@@ -59,10 +70,10 @@ public class LoveApp {
         
         
         public LoveApp(ChatClient.Builder chatClientBuilder,
-                        DatabaseChatMemoryRepository databaseRepository) {
+                        ChatMemoryRepository chatMemoryRepository) {
 
                 this.chatClientBuilder = chatClientBuilder;
-                this.databaseRepository = databaseRepository;
+                this.chatMemoryRepository = chatMemoryRepository;
         }
         
         @PostConstruct
@@ -78,16 +89,18 @@ public class LoveApp {
 
 
                 // 使用 SystemPromptTemplate 读取文件
+                // 注意：这里在 Bean 初始化阶段完成模板渲染，后续每次对话直接复用 systemPrompt。
                 SystemPromptTemplate systemPromptTemplate = new SystemPromptTemplate(systemResource);
                 this.systemPrompt = systemPromptTemplate.render();
 
 
 
                 // 基于数据库的对话记忆，最多保留10条消息
+                // MessageWindowChatMemory 会控制上下文窗口大小，避免历史消息无限增长导致 token 过多。
                 this.chatMemory = MessageWindowChatMemory.builder()
                         //改变
                         //.chatMemoryRepository(new InMemoryChatMemoryRepository())
-                        .chatMemoryRepository(databaseRepository)
+                        .chatMemoryRepository(chatMemoryRepository)
                         .maxMessages(10)
                         .build();
 
@@ -96,6 +109,7 @@ public class LoveApp {
                         .defaultOptions(DashScopeChatOptions.builder()
                                 .enableThinking(false)  // Qwen3 系列必须关闭思考模式，否则非流式调用报错
                                 .build())
+                        // 默认 Advisor 会作用在所有通过该 chatClient 发起的请求上。
                         .defaultAdvisors(
                                 new myadvisor(),
                                 new SafeGuardAdvisor()
@@ -105,9 +119,11 @@ public class LoveApp {
 
     /**
      * 多轮对话，chatId 用于区分不同会话，userId 用于权限校验
+     *
+     * chatId 是会话隔离的关键：同一个 chatId 会共享历史记忆，不同 chatId 互不影响。
      */
-    public void chat(String message, String chatId) {
-        chatClient.prompt()
+    public String chat(String message, String chatId) {
+        return chatClient.prompt()
                 .user(message)
                 .advisors(spec -> spec
                         .advisors(MessageChatMemoryAdvisor.builder(chatMemory).conversationId(chatId).build())
@@ -116,13 +132,101 @@ public class LoveApp {
                 .call()
                 .content();
     }
+
+    /**
+     * 多轮对话的流式输出版本。
+     */
+    public Flux<String> chatStream(String message, String chatId) {
+        return chatClient.prompt()
+                .user(message)
+                .advisors(spec -> spec
+                        .advisors(MessageChatMemoryAdvisor.builder(chatMemory).conversationId(chatId).build())
+                )
+                .stream()
+                .content();
+    }
+
+    /**
+     * 使用 RAG 知识库的流式对话版本。
+     */
+    public Flux<String> chatStreamWithRag(String message, String chatId) {
+        return Flux.defer(() -> {
+            log.info("=== RAG 流式对话开始 ===");
+            long startTime = System.currentTimeMillis();
+
+            long step1Start = System.currentTimeMillis();
+            String rewrittenMessage = queryRewriter.rewrite(message);
+            long step1Time = System.currentTimeMillis() - step1Start;
+            log.info("RAG 步骤1完成: 查询重写耗时 {}ms, [{}] -> [{}]", step1Time, message, rewrittenMessage);
+
+            long step2Start = System.currentTimeMillis();
+            List<Document> documents = loveAppVectorStore.similaritySearch(
+                    SearchRequest.builder()
+                            .query(rewrittenMessage)
+                            .topK(5)
+                            .build()
+            );
+            long step2Time = System.currentTimeMillis() - step2Start;
+            log.info("RAG 步骤2完成: 向量检索耗时 {}ms, 检索到 {} 个相关文档", step2Time, documents.size());
+
+            long step3Start = System.currentTimeMillis();
+            ContextualQueryAugmenter augmenter = LoveAppContextualQueryAugmenterFactory.createInstance(ragPromptResource);
+            Query augmentedQuery = augmenter.augment(new Query(rewrittenMessage), documents);
+            long step3Time = System.currentTimeMillis() - step3Start;
+            log.info("RAG 步骤3完成: 上下文增强耗时 {}ms", step3Time);
+
+            String combinedSystemPrompt = systemPrompt + "\n\n## 知识库参考\n" + augmentedQuery.text();
+
+            Flux<String> processStream = Flux.just(
+                    "[[PROCESS]]Step 1: 查询重写\n原始问题: " + message + "\n改写后: " + rewrittenMessage + "\n耗时: " + step1Time + "ms",
+                    "[[PROCESS]]Step 2: 向量知识库检索\n检索到 " + documents.size() + " 个相关文档。\n耗时: " + step2Time + "ms",
+                    "[[PROCESS]]Step 3: 上下文增强\n将知识库内容注入恋爱大师提示词。\n耗时: " + step3Time + "ms",
+                    "[[PROCESS]]Step 4: MCP 工具准备\n" + (toolCallbackProvider == null ? "MCP 未启用或没有可用工具，本次仅使用知识库。" : "已接入 MCP 工具，可由模型按需调用。"),
+                    "[[PROCESS]]Step 5: 调用大模型\n基于知识库参考生成流式回复。"
+            );
+
+            ChatClient.ChatClientRequestSpec requestSpec = chatClient.prompt()
+                    .system(combinedSystemPrompt)
+                    .user(message)
+                    .advisors(spec -> spec
+                            .advisors(MessageChatMemoryAdvisor.builder(chatMemory).conversationId(chatId).build())
+                    );
+
+            if (toolCallbackProvider != null) {
+                requestSpec.toolCallbacks(toolCallbackProvider);
+            }
+
+            Flux<String> answerStream = requestSpec
+                    .stream()
+                    .content()
+                    .filter(content -> content != null && !content.isEmpty())
+                    .map(content -> "[[ANSWER]]" + content)
+                    .doFinally(signalType -> {
+                        long totalTime = System.currentTimeMillis() - startTime;
+                        log.info("=== RAG 流式对话结束，signal={}, 总耗时 {}ms ===", signalType, totalTime);
+                    });
+
+            return Flux.concat(processStream, answerStream);
+        });
+    }
     /**
      * 结构化输出
      */
 
+    /**
+     * 结构化返回结果。
+     *
+     * Spring AI 会根据 record 字段把模型输出映射为 Java 对象，
+     * 适合报告、表单、摘要等需要固定结构的场景。
+     */
     record LoveReport(String title, List<String> suggestions) {
     }
 
+    /**
+     * 生成恋爱咨询报告。
+     *
+     * 与普通 chat 不同，这里通过 entity(LoveReport.class) 要求模型输出可映射的结构化结果。
+     */
     public LoveReport dowithreport(String message,String chatID){
         LoveReport loveReport = chatClient.prompt()
                 .system(systemPrompt+ "每次对话后都要生成恋爱结果，标题为{用户名}的恋爱报告，内容为建议列表")
@@ -213,9 +317,15 @@ public class LoveApp {
 
 
 
+        // Spring 容器中注册的本地 @Tool 工具集合，例如文件、网页抓取、PDF 生成等。
         @jakarta.annotation.Resource
-        private Object[] allTools;
+        private ToolCallback[] allTools;
 
+        /**
+         * 带本地工具调用能力的对话。
+         *
+         * tools(allTools) 会把本地 Java 方法暴露给模型，由模型决定是否调用具体工具。
+         */
         public String doChatWithTools(String message, String chatID) {
         ChatResponse response = chatClient.prompt()
                 .user(message)
@@ -223,7 +333,7 @@ public class LoveApp {
                         .advisors(MessageChatMemoryAdvisor.builder(chatMemory).conversationId(chatID).build())
 
                 )
-                .tools(allTools)  // Use tools() for @Tool annotated methods
+                .toolCallbacks(allTools)
                 .call()
                 .chatResponse();
         String content = response.getResult().getOutput().getText();
@@ -233,10 +343,20 @@ public class LoveApp {
 
 
 
-        @jakarta.annotation.Resource
+        // MCP 工具回调提供者，负责把外部 MCP Server 暴露出的工具接入 ChatClient。
+        @Autowired(required = false)
         private ToolCallbackProvider toolCallbackProvider;
 
+        /**
+         * 带 MCP 工具调用能力的对话。
+         *
+         * MCP 工具来自外部进程或服务，所以这里使用 toolCallbacks(toolCallbackProvider)，
+         * 与本地 @Tool 注解方法的 tools(allTools) 是两套不同的接入方式。
+         */
         public void dochatwithmcp(String message, String chatID) {
+            if (toolCallbackProvider == null) {
+                throw new IllegalStateException("MCP client is disabled or no MCP tool callback provider is available");
+            }
             ChatResponse response = chatClient.prompt()
                     .user(message)
                     .advisors(spec -> spec.advisors(MessageChatMemoryAdvisor.builder(chatMemory).conversationId(chatID).build()))
@@ -255,6 +375,3 @@ public class LoveApp {
 
 
 }
-
-
-

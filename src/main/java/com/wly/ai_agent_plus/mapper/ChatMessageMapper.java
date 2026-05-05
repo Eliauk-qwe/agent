@@ -14,7 +14,7 @@ public interface ChatMessageMapper {
     @Insert("INSERT INTO chat_message(conversation_id, role, content) VALUES(#{conversationId}, #{role}, #{content})")
     void insert(ChatMessageEntity entity);
 
-    @Select("SELECT * FROM chat_message WHERE conversation_id = #{conversationId} ORDER BY created_at ASC")
+    @Select("SELECT * FROM chat_message WHERE conversation_id = #{conversationId} ORDER BY id ASC")
     List<ChatMessageEntity> findByConversationId(String conversationId);
 
     @Delete("DELETE FROM chat_message WHERE conversation_id = #{conversationId}")

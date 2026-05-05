@@ -32,7 +32,7 @@ public class WebScraperTool implements Function<WebScraperTool.Request, WebScrap
     private static final String DEFAULT_USER_AGENT = 
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
     
-    private static final int DEFAULT_TIMEOUT = 10000; // 10 秒超时
+    private static final int DEFAULT_TIMEOUT = 30000; // 30 秒超时
 
     /**
      * 抓取网页内容
@@ -48,17 +48,99 @@ public class WebScraperTool implements Function<WebScraperTool.Request, WebScrap
         Response response = new Response();
         response.url = request.url;
         
-        try {
-            // 连接并获取网页
-            Document doc = Jsoup.connect(request.url)
-                    .userAgent(request.userAgent != null ? request.userAgent : DEFAULT_USER_AGENT)
-                    .timeout(request.timeout > 0 ? request.timeout : DEFAULT_TIMEOUT)
-                    .followRedirects(true)
-                    .ignoreHttpErrors(false)  // 不忽略 HTTP 错误
-                    .get();
-            
-            // 提取基本信息
-            response.title = doc.title();
+        int maxRetries = 3;
+        int timeout = request.timeout > 0 ? request.timeout : DEFAULT_TIMEOUT;
+        Document doc = null;
+        
+        for (int attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                log.info("尝试抓取 (第{}次): {}", attempt, request.url);
+                
+                // 使用 curl 命令抓取（更可靠）
+                String userAgent = request.userAgent != null ? request.userAgent : DEFAULT_USER_AGENT;
+                ProcessBuilder pb = new ProcessBuilder(
+                    "curl", "-s", "-L", "--connect-timeout", "30",
+                    "-A", userAgent,
+                    "-m", "30",
+                    request.url
+                );
+                pb.redirectErrorStream(true);
+                Process process = pb.start();
+                
+                java.io.BufferedReader reader = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(process.getInputStream(), "UTF-8"));
+                StringBuilder html = new StringBuilder();
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    html.append(line).append("\n");
+                }
+                reader.close();
+                
+                int exitCode;
+                try {
+                    exitCode = process.waitFor();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IOException("抓取被中断");
+                }
+                if (exitCode != 0) {
+                    throw new IOException("curl 失败，退出码: " + exitCode);
+                }
+                
+                String htmlContent = html.toString();
+                if (htmlContent.isEmpty()) {
+                    throw new IOException("curl 返回空内容");
+                }
+                
+                // 解析 HTML
+                doc = Jsoup.parse(htmlContent, request.url);
+                log.info("curl 成功获取内容，长度: {} 字符", htmlContent.length());
+                
+                // 如果成功，跳出重试循环
+                break;
+                
+            } catch (IOException e) {
+                log.warn("第{}次抓取失败: {}", attempt, e.getMessage());
+                
+                // 如果是最后一次尝试，返回错误
+                if (attempt == maxRetries) {
+                    String errorMsg = e.getMessage();
+                    if (errorMsg.contains("timeout") || errorMsg.contains("Timeout")) {
+                        response.success = false;
+                        response.error = "连接超时，可能是网络问题或目标网站无法访问。请稍后重试，或尝试其他网站。";
+                    } else if (errorMsg.contains("403") || errorMsg.contains("Forbidden")) {
+                        response.success = false;
+                        response.error = "目标网站拒绝访问 (403 Forbidden)，可能是反爬虫机制。请尝试其他网站。";
+                    } else if (errorMsg.contains("404") || errorMsg.contains("Not Found")) {
+                        response.success = false;
+                        response.error = "页面不存在 (404)。";
+                    } else {
+                        response.success = false;
+                        response.error = "抓取失败: " + errorMsg;
+                    }
+                    log.error("抓取最终失败: {}", e.getMessage());
+                    return response;
+                }
+                
+                // 等待后重试
+                try {
+                    Thread.sleep(2000);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        }
+        
+        // 检查是否成功获取文档
+        if (doc == null) {
+            response.success = false;
+            response.error = "无法获取网页内容";
+            return response;
+        }
+        
+        // 提取基本信息
+        response.title = doc.title();
             response.success = true;
             
             // 调试信息：记录原始 HTML 长度
@@ -116,12 +198,6 @@ public class WebScraperTool implements Function<WebScraperTool.Request, WebScrap
             
             log.info("抓取成功，内容长度: {} 字符", response.content.length());
             
-        } catch (IOException e) {
-            log.error("抓取失败: {}", e.getMessage());
-            response.success = false;
-            response.error = "抓取失败: " + e.getMessage();
-        }
-        
         return response;
     }
 
