@@ -5,7 +5,6 @@ import org.apache.ibatis.annotations.*;
 
 import java.util.List;
 
-@Mapper
 public interface ChatMessageMapper {
 
     @Select("SELECT DISTINCT conversation_id FROM chat_message")

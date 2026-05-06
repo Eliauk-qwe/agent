@@ -9,7 +9,7 @@ import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
-import org.springframework.ai.chat.memory.ChatMemoryRepository;
+import org.springframework.ai.chat.memory.InMemoryChatMemoryRepository;
 import org.springframework.ai.chat.memory.MessageWindowChatMemory;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.SystemPromptTemplate;
@@ -49,7 +49,7 @@ public class LoveApp {
         
         private ChatClient chatClient;
 
-        // 对话记忆，保存多轮对话的历史；生产环境由 DatabaseChatMemoryRepository 落到 MySQL。
+        // 对话记忆，默认保存在当前 JVM 内存中；服务重启后历史会清空。
         private MessageWindowChatMemory chatMemory;
 
         // 渲染后的系统提示词，会在初始化后被复用，避免每次请求重复读取模板文件。
@@ -57,7 +57,6 @@ public class LoveApp {
         
         // ChatClient.Builder 由 Spring AI 自动配置，包含模型、连接信息等基础能力。
         private final ChatClient.Builder chatClientBuilder;
-        private final ChatMemoryRepository chatMemoryRepository;
 
         // 注入向量存储
         @Autowired
@@ -69,11 +68,8 @@ public class LoveApp {
 
         
         
-        public LoveApp(ChatClient.Builder chatClientBuilder,
-                        ChatMemoryRepository chatMemoryRepository) {
-
+        public LoveApp(ChatClient.Builder chatClientBuilder) {
                 this.chatClientBuilder = chatClientBuilder;
-                this.chatMemoryRepository = chatMemoryRepository;
         }
         
         @PostConstruct
@@ -95,12 +91,10 @@ public class LoveApp {
 
 
 
-                // 基于数据库的对话记忆，最多保留10条消息
+                // 基于内存的对话记忆，最多保留10条消息。
                 // MessageWindowChatMemory 会控制上下文窗口大小，避免历史消息无限增长导致 token 过多。
                 this.chatMemory = MessageWindowChatMemory.builder()
-                        //改变
-                        //.chatMemoryRepository(new InMemoryChatMemoryRepository())
-                        .chatMemoryRepository(chatMemoryRepository)
+                        .chatMemoryRepository(new InMemoryChatMemoryRepository())
                         .maxMessages(10)
                         .build();
 

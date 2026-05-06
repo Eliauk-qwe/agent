@@ -1,0 +1,51 @@
+# Maven 构建产物
+target/
+*.jar
+*.war
+
+# IDE 配置文件
+.idea/
+.vscode/
+*.iml
+.project
+.classpath
+.settings/
+
+# Git 相关
+.git/
+.gitignore
+.gitattributes
+
+# 前端相关（后端镜像不需要）
+frontend/
+node_modules/
+
+# 临时文件和日志
+*.log
+*.tmp
+*.swp
+*~
+.DS_Store
+
+# 本地数据和上传文件
+data/
+uploads/
+downloads/
+
+# 环境变量文件（敏感信息）
+.env
+.env.local
+
+# 文档和说明
+README.md
+*.md
+docs/
+
+# 其他
+.mvn/
+mvnw
+mvnw.cmd
+.agents/
+.codex
+image-mcp/
+debug-frontend.js

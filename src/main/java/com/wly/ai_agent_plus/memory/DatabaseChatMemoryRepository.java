@@ -6,6 +6,7 @@ import org.springframework.ai.chat.memory.ChatMemoryRepository;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,6 +28,7 @@ import java.util.stream.Collectors;
  *   这里自己实现这个接口，把数据存到 MySQL，这样重启后历史对话依然存在。
  */
 @Component
+@ConditionalOnProperty(name = "app.chat-memory.type", havingValue = "database")
 public class DatabaseChatMemoryRepository implements ChatMemoryRepository {
 
     // 注入 MyBatis Mapper，用于执行数据库操作
